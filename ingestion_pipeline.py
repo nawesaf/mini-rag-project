@@ -1,9 +1,11 @@
 import os
-from langchain_community.document_loaders import TextLoader, DirectoryLoader
-from langchain_text_splitters import CharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
-from langchain_chroma import Chroma
+
 from dotenv import load_dotenv
+from langchain_chroma import Chroma
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_openai import OpenAIEmbeddings
+from langchain_text_splitters import CharacterTextSplitter
 
 load_dotenv()
 
@@ -65,7 +67,7 @@ def split_documents(documents, chunk_size=1000, chunk_overlap=0):
             print(f"\n--- Chunk {i+1} ---")
             print(f"Source: {chunk.metadata['source']}")
             print(f"Length: {len(chunk.page_content)} characters")
-            print(f"Content:")
+            print("Content:")
             print(chunk.page_content)
             print("-" * 50)
         
@@ -79,7 +81,9 @@ def create_vector_store(chunks, persist_directory="db/chroma_db"):
     """Create and persist ChromaDB vector store"""
     print("Creating embeddings and storing in ChromaDB...")
         
-    embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
+    embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L12-v2",
+                                            model_kwargs={"device": "cpu"},
+                                            encode_kwargs={"normalize_embeddings": True})
     
     # Create ChromaDB vector store
     print("--- Creating vector store ---")
@@ -87,6 +91,7 @@ def create_vector_store(chunks, persist_directory="db/chroma_db"):
         documents=chunks,
         embedding=embedding_model,
         persist_directory=persist_directory, 
+        collection_name="rag_documents",
         collection_metadata={"hnsw:space": "cosine"} #Uses cosine similarity for nearest neighbor search
     )
     print("--- Finished creating vector store ---")
@@ -107,7 +112,9 @@ def main():
     if os.path.exists(persistent_directory):
         print("✅ Vector store already exists. No need to re-process documents.")
         
-        embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
+        embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L12-v2",
+                                                model_kwargs={"device": "cpu"},
+                                                encode_kwargs={"normalize_embeddings": True})
         vectorstore = Chroma(
             persist_directory=persistent_directory,
             embedding_function=embedding_model, 
