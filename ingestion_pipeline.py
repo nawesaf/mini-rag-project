@@ -1,13 +1,14 @@
 import os
 
-from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import CharacterTextSplitter
 
-load_dotenv()
+
+def get_absolute_path(relative_path):
+    """Get the absolute path of a file or directory relative to the current working directory."""
+    return os.path.abspath(os.path.join(os.getcwd(), relative_path))
 
 #------------------------------------------ Loading Documents ------------------------------------------#
 def load_documents(docs_path="docs"):
@@ -105,8 +106,8 @@ def main():
     print("=== RAG Document Ingestion Pipeline ===\n")
     
     # Define paths
-    docs_path = "docs"
-    persistent_directory = "db/chroma_db"
+    docs_path = get_absolute_path("docs")
+    persistent_directory = get_absolute_path("db/chroma_db")
     
     # Check if vector store already exists
     if os.path.exists(persistent_directory):
@@ -117,7 +118,8 @@ def main():
                                                 encode_kwargs={"normalize_embeddings": True})
         vectorstore = Chroma(
             persist_directory=persistent_directory,
-            embedding_function=embedding_model, 
+            embedding_function=embedding_model,
+            collection_name="rag_documents",
             collection_metadata={"hnsw:space": "cosine"}
         )
         print(f"Loaded existing vector store with {vectorstore._collection.count()} documents")
@@ -130,6 +132,7 @@ def main():
 
     # Step 2: Split into chunks
     chunks = split_documents(documents)
+    print(len(chunks), "chunks created from documents.")
     
     # # Step 3: Create vector store
     vectorstore = create_vector_store(chunks, persistent_directory)
