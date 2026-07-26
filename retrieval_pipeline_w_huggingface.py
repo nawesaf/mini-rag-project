@@ -2,12 +2,11 @@ from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_huggingface import (
-    ChatHuggingFace,
     HuggingFaceEmbeddings,
-    HuggingFacePipeline,
 )
 
 from ingestion_pipeline import get_absolute_path
+from llms import answer_question, get_llm
 
 load_dotenv()
 
@@ -59,19 +58,6 @@ If you can't find the answer in the documents, say "I don't have enough informat
 answer that question based on the provided documents."
 """
 
-llm = HuggingFacePipeline.from_model_id(
-    model_id="Qwen/Qwen2.5-0.5B-Instruct",
-    task="text-generation",
-    device=-1,  # CPU
-    pipeline_kwargs={
-        "max_new_tokens": 128,
-        "do_sample": False,
-        "return_full_text": False,
-    },
-)
-
-model = ChatHuggingFace(llm=llm)
-
 # Define the messages for the model
 messages = [
     SystemMessage(content="You answer factual questions using only the supplied context. "
@@ -80,15 +66,24 @@ messages = [
 ]
 
 # Invoke the model with the combined input
-result = model.invoke(messages)
+local_result = answer_question(combined_input, "local")
+openrouter_result = answer_question(combined_input, "openrouter")
+
+test_get_llms = get_llm("openrouter")  # Use OpenRouter for multi-modal capabilities
+get_llm_result = test_get_llms.invoke(messages)
 
 # Display the full result and content only
 print("\n--- Generated Response ---")
 # print("Full result:")
 # print(result)
 print("Content only:")
-print(result.content)
-
+print(local_result.content)
+print("\n--- OpenRouter Response ---")
+print("Content only:")
+print(openrouter_result.content)
+print("\n--- GetLLM Response ---")
+print("Content only:")
+print(get_llm_result.content)
 
 # Synthetic Questions: 
 

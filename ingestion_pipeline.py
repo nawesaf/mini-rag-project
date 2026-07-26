@@ -45,8 +45,7 @@ def load_documents(docs_path="docs"):
 #------------------------------------------ Splitting Documents into chunks ------------------------------------------#
 def split_documents(documents, chunk_size=1000, chunk_overlap=0):
     """Split documents into smaller chunks with overlap"""
-    print("Splitting documents into chunks...")
-    
+    print("Splitting documents into chunks...")    
     """Naive approach: Split each document into chunks of chunk_size characters with 
     chunk_overlap characters overlapping between chunks."""
     text_splitter = CharacterTextSplitter(
