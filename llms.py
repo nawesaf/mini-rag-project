@@ -9,6 +9,7 @@ from langchain_huggingface import (
 )
 from langchain_openrouter import ChatOpenRouter
 from openai import OpenAI
+from sentence_transformers import CrossEncoder
 
 load_dotenv()
 
@@ -38,6 +39,7 @@ model_name = os.getenv("OPENROUTER_MODEL")
 embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L12-v2",
                                             model_kwargs={"device": "cpu"},
                                             encode_kwargs={"normalize_embeddings": True})
+reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 if not api_key:
     raise RuntimeError(
@@ -151,3 +153,6 @@ def get_llm(which_model: str = "local"):
 
 def get_embedding_model():
     return embedding_model
+
+def get_reranker():
+    return reranker
