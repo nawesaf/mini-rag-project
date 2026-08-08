@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -20,41 +21,14 @@ SYSTEM_PROMPT = (
 )
 
 
-local_llm = HuggingFacePipeline.from_model_id(
-    model_id="Qwen/Qwen2.5-0.5B-Instruct",
-    task="text-generation",
-    device=-1,  # CPU
-    pipeline_kwargs={
-        "max_new_tokens": 128,
-        "do_sample": False,
-        "return_full_text": False,
-    },
-)
 
-local_model = ChatHuggingFace(llm=local_llm)
 
-api_key = os.getenv("OPENROUTER_API_KEY")
-model_name = os.getenv("OPENROUTER_MODEL")
 
-embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L12-v2",
-                                            model_kwargs={"device": "cpu"},
-                                            encode_kwargs={"normalize_embeddings": True})
-reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
-if not api_key:
-    raise RuntimeError(
-        "La variable OPENROUTER_API_KEY est absente."
-    )
 
-if not model_name:
-    raise RuntimeError(
-        "La variable OPENROUTER_MODEL est absente."
-    )
 
-openrouter_llm = ChatOpenRouter(
-    model=model_name,
-    temperature=0,
-)
+
+
 
 
 def answer_question(
@@ -79,8 +53,8 @@ def answer_question_local(combined_input: str) -> AIMessage:
         HumanMessage(content=combined_input),
     ]
 
-    response = local_model.invoke(messages)
-
+    response = get_llm('local').invoke(messages)
+    
     if not isinstance(response, AIMessage):
         raise TypeError(
             "Le modèle local n'a pas retourné un AIMessage."
@@ -138,11 +112,43 @@ def answer_question_openrouter(combined_input: str) -> AIMessage:
     return AIMessage(content=answer)
 
 # We can actually use openrouter via langchain's ChatOpenRouter class.
+@lru_cache
 def get_llm(which_model: str = "local"):
     if which_model == "local":
+        local_llm = HuggingFacePipeline.from_model_id(
+            model_id="Qwen/Qwen2.5-0.5B-Instruct",
+            task="text-generation",
+            device=-1,  # CPU
+            pipeline_kwargs={
+                "max_new_tokens": 128,
+                "do_sample": False,
+                "return_full_text": False,
+            },
+        )
+        local_model = ChatHuggingFace(llm=local_llm)
+
         return local_model
 
     if which_model == "openrouter":
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        model_name = os.getenv("OPENROUTER_MODEL")
+        if not api_key:
+            raise RuntimeError(
+                "La variable OPENROUTER_API_KEY est absente."
+            )
+
+        if not model_name:
+            raise RuntimeError(
+                "La variable OPENROUTER_MODEL est absente."
+            )
+
+        openrouter_llm = ChatOpenRouter(
+                            model=model_name,
+                            temperature=0,
+                            max_tokens=300,
+                            timeout=90_000,
+                            max_retries=1,
+                        )
         return openrouter_llm
 
     raise ValueError(
@@ -150,9 +156,14 @@ def get_llm(which_model: str = "local"):
         "Valeurs acceptées : 'local' ou 'openrouter'."
     )
     
-
+@lru_cache
 def get_embedding_model():
+    embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L12-v2",
+                                            model_kwargs={"device": "cpu"},
+                                            encode_kwargs={"normalize_embeddings": True})
     return embedding_model
 
+@lru_cache
 def get_reranker():
+    reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
     return reranker
