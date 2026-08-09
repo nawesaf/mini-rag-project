@@ -1,4 +1,5 @@
 import logging
+import shutil
 import uuid
 from pathlib import Path
 
@@ -84,3 +85,16 @@ async def ask_question(document_id: str, question: Question):
             status_code=500,
             detail="An unexpected internal error occurred",
         )
+        
+@app.delete("/document/{document_id}")
+async def delete_document(document_id: str):
+    document_path = Path('uploads') / document_id
+    if not document_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found",
+        )
+    
+    shutil.rmtree(document_path)
+    
+    return {"document_id": document_id, "status": "deleted"}

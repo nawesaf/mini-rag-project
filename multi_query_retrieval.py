@@ -3,7 +3,7 @@ from collections import defaultdict
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from llms import get_embedding_model, get_llm
 
@@ -23,7 +23,11 @@ db = Chroma(
 
 # Pydantic model for structured output
 class QueryVariations(BaseModel):
-    queries: list[str]
+    queries: list[str] = Field(
+        min_length=3,
+        max_length=3,
+        description="Exactly three standalone retrieval queries.",
+    )
 # ──────────────────────────────────────────────────────────────────
 # MAIN EXECUTION
 # ──────────────────────────────────────────────────────────────────
@@ -40,14 +44,20 @@ llm_with_tools = llm.with_structured_output(QueryVariations,
                                             method="json_schema",
                                             strict=True)
 
-prompt = f"""Generate 3 different variations of this query that would help retrieve relevant documents:
+prompt = f"""Task:
+Generate exactly three standalone search queries for retrieving documents relevant to the original query.
 
-Original query: {original_query}
+Original query:
+{original_query}
 
-Return 3 alternative queries that rephrase or approach the same question from different angles."""
+Rules:
+- Preserve the original intent.
+- Vary wording or retrieval focus without broadening the request.
+- Do not answer the query.
+- Do not add facts, entities, or assumptions absent from the original query.
 
-test_response = llm.invoke("Answer only with: OK")
-print(test_response.content)
+Output:
+Return only the structured `queries` field required by the schema, containing exactly three strings."""
 
 response = llm_with_tools.invoke(prompt)
 if not isinstance(response, QueryVariations):
