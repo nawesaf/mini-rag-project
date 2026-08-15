@@ -2,9 +2,12 @@
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from io import BytesIO
 from itertools import repeat
 from typing import Any, Literal, TypedDict
 
+import pymupdf
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 
@@ -56,8 +59,13 @@ Rules:
 class ChatHistory(TypedDict):
     role: Literal["user", "ai"]
     message: str
-
 chat_history: list[ChatHistory] = []  # Store our conversation as messages
+
+@dataclass
+class PageGroup:
+    start: int
+    end: int
+    strat: str
 
 class DocumentNotFoundError(Exception):
     pass
@@ -75,7 +83,79 @@ def get_vector_store() -> Chroma:
         collection_name="app_documents",
     )
 
-def partition_document(file_path: str, strategy: str='hi_res'):
+def has_complex_drawings(drawings) -> bool:
+    # Placeholder implementation - replace with actual logic to determine if drawings are complex
+    return len(drawings) > 0
+
+def analyse_pdf(file_path: str):
+    groups: list[PageGroup] = []
+    doc = pymupdf.open(file_path)  # Validate PDF can be opened
+    page_count = doc.page_count
+    images = doc[0].get_images()
+    tables = doc[0].find_tables().tables
+    drawings = doc[0].get_drawings()
+    if tables or images or has_complex_drawings(drawings):
+        current_state = "not_text_only"
+    else:
+        current_state = "text_only"
+    start = 0
+    for i in range(1, page_count):
+        page = doc[i]
+        images = page.get_images()
+        tables = page.find_tables().tables
+        drawings = page.get_drawings()
+        if (tables or images or has_complex_drawings(drawings)) and current_state == "text_only":
+            groups.append(PageGroup(start, i-1, 'fast'))
+            start = i
+            current_state = "not_text_only"
+        elif not (tables or images or has_complex_drawings(drawings)) and current_state == "not_text_only":
+            groups.append(PageGroup(start, i-1, 'hi_res'))
+            start = i
+            current_state = "text_only"
+    if current_state == "text_only":
+        groups.append(PageGroup(start, page_count-1, 'fast'))
+    else:
+        groups.append(PageGroup(start, page_count-1, 'hi_res'))
+        
+    return partition_groups(file_path, groups)
+
+def partition_groups(file_path: str, groups: list[PageGroup]):
+    doc = pymupdf.open(file_path)
+    all_elements = []
+    
+    for group in groups:
+        sub_doc = pymupdf.open()
+        sub_doc.insert_pdf(doc, from_page=group.start, to_page=group.end)
+        
+        pdf_file = BytesIO(sub_doc.tobytes())
+
+        if group.strat == "fast":
+            elements = partition_pdf(
+                file=pdf_file,
+                strategy="fast",
+                starting_page_number=group.start + 1,
+            )
+
+        elif group.strat == "hi_res":
+            elements = partition_pdf(
+                file=pdf_file,
+                strategy="hi_res",
+                infer_table_structure=True,
+                extract_image_block_types=["Image"],
+                extract_image_block_to_payload=True,
+                starting_page_number=group.start + 1,
+            )
+
+        all_elements.extend(elements)
+                    
+        sub_doc.close()
+    
+    doc.close()
+    return all_elements
+        
+        
+
+def partition_document(file_path: str, strategy: str='auto'):
     """Extract elements from PDF using unstructured"""
     elements = partition_pdf(
         filename=file_path,  # Path to your PDF file
@@ -217,7 +297,7 @@ def run_complete_ingestion_pipeline(pdf_path: str, document_id: str):
     """Run the complete RAG ingestion pipeline"""
     
     # Step 1: Partition
-    elements = partition_document(pdf_path)
+    elements = analyse_pdf(pdf_path)
     
     # Step 2: Chunk
     chunks = create_chunks_by_title(elements)
@@ -246,7 +326,7 @@ def get_answer(query, document_id):
     response = generate_final_answer(chunks, query)
 
     add_to_chat_history(query, response)
-    return response
+    return [response, new_query]
     
 def generate_final_answer(chunks, query) -> str:
     """Generate final answer using multimodal content"""

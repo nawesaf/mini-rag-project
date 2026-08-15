@@ -148,7 +148,7 @@ def get_llm(which_model: str = "local"):
         openrouter_llm = ChatOpenRouter(
                             model=model_name,
                             temperature=0,
-                            max_tokens=300,
+                            max_tokens=1000,
                             timeout=90_000,
                             max_retries=1,
                         )

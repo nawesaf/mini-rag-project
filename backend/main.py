@@ -8,7 +8,12 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from multi_modal_rag import AnswerGenerationError, DocumentNotFoundError, get_answer, run_complete_ingestion_pipeline
+from multi_modal_rag import (
+    AnswerGenerationError,
+    DocumentNotFoundError,
+    get_answer,
+    run_complete_ingestion_pipeline,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +25,8 @@ class Question(BaseModel):
     question: str
     
 class Response(BaseModel):
+    question: str
+    rewritten_question: str
     answer: str
 
 
@@ -62,9 +69,9 @@ async def ask_question(document_id: str, question: Question):
             detail= "The question cannot be empty"
         )
     try:
-        answer = await run_in_threadpool(get_answer, question.question, document_id)
-        return Response(answer=answer)
-    
+        [answer, rewritten_question] = await run_in_threadpool(get_answer, question.question, document_id)
+        return Response(question=question.question, answer=answer, rewritten_question=rewritten_question)
+
     except DocumentNotFoundError:
         raise HTTPException(
             status_code=404,
