@@ -30,7 +30,7 @@ class File(TypedDict):
 
 class Action(BaseModel):
     type: Literal["tool call", "final answer"]
-    tool: Literal["list_files", "read_file"] | None
+    tool: Literal["list_files", "read_file", "create_file", "write_file"] | None
     args: dict[str, Any]
     final_answer: str | None
     summary: str | None
@@ -49,6 +49,13 @@ class ListFilesArgs(BaseModel):
 
 class ReadFilesArgs(BaseModel):
     path: str
+
+class CreateFileArgs(BaseModel):
+    path: str
+
+class WriteFileArgs(BaseModel):
+    path: str
+    content: str
 
 class Command(BaseModel):
     name: Literal["pytest", "python", "ruff", "mypy"]
@@ -77,12 +84,12 @@ class AgentState:
 llm = get_llm("openrouter")
 root = Path("/home/user/home/ensimag/mini-rag-project")
 
-ReAct_SYSTEM_PROMPT = """You are a read-only coding assistant working on the current project.
+ReAct_SYSTEM_PROMPT = """You are a coding assistant working on the current project.
 
 Your job is to answer questions about the codebase, explain how it works, identify likely
-bugs, and suggest precise improvements. You can inspect files, but you cannot edit files,
-execute code, or run tests. Never claim that you performed an action that your tools do not
-support.
+bugs, suggest precise improvements, and create or update files when the user asks you to.
+You cannot execute code or run tests. Never claim that you performed an action that your
+tools do not support.
 
 Available tools:
 
@@ -97,6 +104,18 @@ Available tools:
      returned by `list_files`.
    - Result: `{"path": "<path>", "content": "<file contents>"}`.
 
+3. `create_file`
+   - Purpose: create a new empty file. Missing parent directories are created automatically.
+   - Arguments: `{"path": "<project-relative path>"}`.
+   - Result: the created path and a success status.
+   - The call fails if the file already exists.
+
+4. `write_file`
+   - Purpose: replace the complete contents of an existing text file.
+   - Arguments: `{"path": "<project-relative path>", "content": "<complete contents>"}`.
+   - Result: the written path, a success status, and the number of characters written.
+   - The call fails if the file does not exist. Use `create_file` first for a new file.
+
 Operating rules:
 
 - Base your answer only on the user's request and information actually present in the
@@ -108,6 +127,9 @@ Operating rules:
   instead of calling `list_files` again.
 - Read the files needed to support the answer before drawing conclusions about their
   contents. Avoid unnecessary tool calls and inspect one file per tool call.
+- Create or write files only when the user's request requires a modification. Before
+  overwriting an existing file, read it unless its complete current contents are already
+  available in the conversation.
 - After each tool result, reassess whether more evidence is needed. When enough evidence is
   available, return a final answer that directly addresses the user and cites relevant file
   paths or code elements.
@@ -134,7 +156,7 @@ Every response must exactly follow this JSON-compatible schema:
   "thought": string | null,
   "action": {
     "type": "tool call" | "final answer",
-    "tool": "list_files" | "read_file" | null,
+    "tool": "list_files" | "read_file" | "create_file" | "write_file" | null,
     "args": object,
     "final_answer": string | null,
     "summary": string | null
@@ -157,6 +179,12 @@ For a tool call, return this structure:
 
 For `read_file`, use the same structure with `"tool": "read_file"` and
 `"args": {"path": "<path>"}`.
+
+For `create_file`, use `"tool": "create_file"` and
+`"args": {"path": "<path>"}`.
+
+For `write_file`, use `"tool": "write_file"` and
+`"args": {"path": "<path>", "content": "<complete contents>"}`.
 
 For the final answer, return this structure:
 
@@ -202,14 +230,13 @@ can be executed one after another by another agent. Rules:
     3. Determine the root cause of the bug. 
     4. Apply an appropriate correction. 
     5. Run the relevant tests again and verify the fix.
-The executor is read-only.
-
 It can:
 - list project files;
-- read project files.
+- read project files;
+- create new files;
+- replace the contents of existing files.
 
 It cannot:
-- modify files;
 - execute code;
 - run tests;
 - run shell commands.
@@ -284,6 +311,51 @@ def read_file(path: str) -> File:
     """reads complete content of a file"""
     with open(path) as f:
         return {"path": path, "content": f.read()}
+
+def resolve_project_path(path: str) -> tuple[Path, Path]:
+    """Resolve a relative path and ensure it remains inside the project root."""
+    relative_path = Path(path)
+    if not path or relative_path.is_absolute():
+        raise ValueError("The path must be a non-empty project-relative path")
+
+    project_root = ROOT.resolve()
+    resolved_path = (project_root / relative_path).resolve()
+    try:
+        normalized_path = resolved_path.relative_to(project_root)
+    except ValueError as exc:
+        raise ValueError(f"Path escapes the project root: {path}") from exc
+
+    return resolved_path, normalized_path
+
+def create_file(path: str) -> dict[str, Any]:
+    """Create a new empty file inside the project without overwriting an existing file."""
+    resolved_path, normalized_path = resolve_project_path(path)
+    resolved_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with resolved_path.open("x", encoding="utf-8"):
+        pass
+
+    return {
+        "path": str(normalized_path),
+        "created": True,
+    }
+
+def write_file(path: str, content: str) -> dict[str, Any]:
+    """Replace the complete contents of an existing text file inside the project."""
+    resolved_path, normalized_path = resolve_project_path(path)
+    if not resolved_path.exists():
+        raise FileNotFoundError(
+            f"File {normalized_path} does not exist; call create_file first"
+        )
+    if not resolved_path.is_file():
+        raise ValueError(f"Path is not a regular file: {normalized_path}")
+
+    resolved_path.write_text(content, encoding="utf-8")
+    return {
+        "path": str(normalized_path),
+        "written": True,
+        "characters_written": len(content),
+    }
     
 def run_command(command: Command):
     name = command.name
@@ -316,7 +388,9 @@ def apply_patch(source_path: Path, patch: str):
     
 TOOLS = {
     "list_files": Tool(func=list_files, args_schema=ListFilesArgs),
-    "read_file": Tool(func=read_file, args_schema=ReadFilesArgs)
+    "read_file": Tool(func=read_file, args_schema=ReadFilesArgs),
+    "create_file": Tool(func=create_file, args_schema=CreateFileArgs),
+    "write_file": Tool(func=write_file, args_schema=WriteFileArgs),
 }
 
 def invoke_structured(

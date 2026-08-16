@@ -10,6 +10,7 @@ from typing import Any, Literal, TypedDict
 import pymupdf
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
+from langchain_community.document_loaders import PyPDFLoader
 
 # LangChain components
 from langchain_core.documents import Document
@@ -312,7 +313,7 @@ def run_complete_ingestion_pipeline(pdf_path: str, document_id: str):
 def get_answer(query, document_id):
     vector_store = get_vector_store()
     retriever = vector_store.as_retriever(
-        search_kwargs={"k": 3, 
+        search_kwargs={"k": 4, 
                        "filter": {"document_id": document_id}}
     )
 
@@ -429,3 +430,22 @@ def use_chat_history(user_question: str) -> str:
             raise TypeError("The language model did not return text content")
         return content
     return user_question
+
+def pdf_loader(pdf_path: str):
+    loader = PyPDFLoader(pdf_path)
+    documents = loader.load()
+    print(f"Loaded {len(documents)} documents from {pdf_path}")
+    for i, doc in enumerate(documents):
+        print(f"Document {i + 1}:")
+        print(f"Page content: {doc.page_content[:100]}...")  # Print first 100 characters
+        print(f"Metadata: {doc.metadata}")
+
+# toute la retrieval pipeline est dans cette fonction
+# rag_chain = (
+#     {"context": retriever | format_docs,
+#      "question": RunnablePassthrough()
+#      | prompt
+#      | llm
+#      | StrOutputParser()},
+# )
+# rag_chain.invoke(query)

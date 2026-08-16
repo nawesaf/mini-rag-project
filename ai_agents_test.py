@@ -8,6 +8,10 @@ TEST_QUERIES = [
     "Explain how tools are executed in the agent.",
 ]
 
+FILE_CREATION_QUERY = """Create a new file named `integer_addition.py` in the project root.
+In that file, implement a typed Python function named `add_integers` that accepts two
+integers and returns their sum. Include a concise docstring. Do not modify any other file."""
+
 
 def test_agent(name, agent, query):
     print(f"\n{'=' * 60}")
@@ -18,7 +22,7 @@ def test_agent(name, agent, query):
     start = perf_counter()
 
     try:
-        result = agent(query)
+        result = agent(query, debug=True)
         elapsed = perf_counter() - start
 
         print(f"\nResult:\n{result}")
@@ -29,22 +33,32 @@ def test_agent(name, agent, query):
 
 
 def main():
-    for query in TEST_QUERIES:
-        print(f"\n\n{'#' * 70}")
-        print(f"TEST: {query}")
-        print("#" * 70)
+    # for query in TEST_QUERIES:
+    #     print(f"\n\n{'#' * 70}")
+    #     print(f"TEST: {query}")
+    #     print("#" * 70)
 
-        test_agent(
-            "Simple ReAct agent",
-            ReAct_agent_loop,
-            query
-        )
+    #     test_agent(
+    #         "Simple ReAct agent",
+    #         ReAct_agent_loop,
+    #         query
+    #     )
 
-        test_agent(
-            "Planner + ReAct agent",
-            planner_agent_loop,
-            query
-        )
+    #     test_agent(
+    #         "Planner + ReAct agent",
+    #         planner_agent_loop,
+    #         query
+    #     )
+
+    # print(f"\n\n{'#' * 70}")
+    print("TEST: Create and implement a new Python file")
+    print("#" * 70)
+
+    test_agent(
+        "Planner + ReAct agent — file creation",
+        planner_agent_loop,
+        FILE_CREATION_QUERY,
+    )
 
 
 if __name__ == "__main__":
